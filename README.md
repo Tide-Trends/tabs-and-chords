@@ -1,6 +1,6 @@
 # Tabs & Chords
 
-![Tabs & Chords demo](Screen%20Recording%202026-03-15%20at%205.21.28%20PM.gif)
+![Tabs & Chords demo](Screen Recording 2026-03-15 at 5.gif)
 
 DMG installer (build locally):
 
