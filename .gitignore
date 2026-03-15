@@ -1,4 +1,6 @@
 .build/
+.swiftpm/
+.vscode/
 dist/
 DerivedData/
 .DS_Store
