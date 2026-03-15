@@ -1,6 +1,6 @@
 # Tabs & Chords
 
-![Tabs & Chords demo](https://github.com/Tide-Trends/tabs-and-chords/blob/main/Screen%20Recording%202026-03-15%20at%205.gif)
+![Tabs & Chords demo](https://raw.githubusercontent.com/Tide-Trends/tabs-and-chords/main/Screen%20Recording%202026-03-15%20at%205.gif)
 
 DMG installer (build locally):
 
