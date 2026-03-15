@@ -1,6 +1,6 @@
 # Tabs & Chords
 
-Demo video: [Watch the demo](Screen%20Recording%202026-03-15%20at%205.21.28%20PM.gif)
+![Tabs & Chords demo](Screen%20Recording%202026-03-15%20at%205.21.28%20PM.gif)
 
 DMG installer (build locally):
 
@@ -25,6 +25,14 @@ Allows you to quickly open or play a song from Ultimate Guitar tabs.
   - `Option-Command-T` searches tabs for the current song
 
 ## Install
+
+You can install either of these ways:
+
+1. Download the repository and open the folder in Xcode, then run the app.
+2. Download the DMG from Releases and install from there:
+  https://github.com/Tide-Trends/tabs-and-chords/releases/
+
+If you are building from source in Terminal, you can also run:
 
 ```bash
 ./scripts/install.sh
