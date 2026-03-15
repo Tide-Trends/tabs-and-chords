@@ -1,6 +1,6 @@
 # Tabs & Chords
 
-Demo video: [Watch the demo](assets/demo.mov)
+Demo video: [Watch the demo](Screen%20Recording%202026-03-15%20at%205.21.28%20PM.gif)
 
 DMG installer (build locally):
 
