@@ -2,13 +2,7 @@
 
 ![Tabs & Chords demo](assets/demo.gif)
 
-DMG installer (build locally):
 
-```bash
-zsh scripts/build_dmg.sh
-```
-
-This creates [dist/Tabs-and-Chords.dmg](dist/Tabs-and-Chords.dmg). Open the DMG and drag `Tabs & Chords.app` into `Applications`.
 
 Minimal macOS menu bar app that reads the currently playing song from Spotify or Apple Music and integrates with Ultimate Guitar + Apple Music.
 
@@ -31,12 +25,6 @@ You can install either of these ways:
 1. Download the repository and open the folder in Xcode, then run the app.
 2. Download the DMG from Releases and install from there:
   https://github.com/Tide-Trends/tabs-and-chords/releases/
-
-If you are building from source in Terminal, you can also run:
-
-```bash
-./scripts/install.sh
-```
 
 ## Build DMG
 
