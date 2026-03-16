@@ -45,9 +45,15 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
     <true/>
     <key>NSAppleEventsUsageDescription</key>
     <string>Tabs &amp; Chords reads the current song, inspects supported browser tabs, and controls Music so it can search for tabs and play songs.</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
 </dict>
 </plist>
 PLIST
+
+# Copy app icon into Resources/
+mkdir -p "$CONTENTS_DIR/Resources"
+cp "$ROOT_DIR/assets/AppIcon.icns" "$CONTENTS_DIR/Resources/AppIcon.icns"
 
 xattr -cr "$APP_DIR"
 codesign --force --deep --sign - "$APP_DIR"

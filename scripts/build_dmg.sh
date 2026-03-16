@@ -47,9 +47,15 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
     <true/>
     <key>NSAppleEventsUsageDescription</key>
     <string>Tabs &amp; Chords reads the current song, inspects supported browser tabs, and controls Music so it can search for tabs and play songs.</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
 </dict>
 </plist>
 PLIST
+
+# Copy app icon into Resources/
+mkdir -p "$CONTENTS_DIR/Resources"
+cp "$ROOT_DIR/assets/AppIcon.icns" "$CONTENTS_DIR/Resources/AppIcon.icns"
 
 # Remove extended attributes and apply an explicit ad-hoc signature to the bundle.
 xattr -cr "$APP_DIR"

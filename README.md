@@ -26,6 +26,16 @@ You can install either of these ways:
 2. Download the DMG from Releases and install from there:
   https://github.com/Tide-Trends/tabs-and-chords/releases/
 
+### First launch (Gatekeeper)
+
+Because the app isn't notarized, macOS may say *"Apple could not verify 'Tabs & Chords' is free of malware"* when you try to open it. Run this once in Terminal after copying the app to Applications:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Tabs & Chords.app"
+```
+
+Then open the app normally.
+
 ## Build DMG
 
 ```bash
