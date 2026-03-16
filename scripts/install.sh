@@ -17,7 +17,6 @@ rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR"
 
 cp "$BUILD_DIR/$EXECUTABLE_NAME" "$MACOS_DIR/$EXECUTABLE_NAME"
-chmod +x "$MACOS_DIR/$EXECUTABLE_NAME"
 
 cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -49,6 +48,10 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+
+xattr -cr "$APP_DIR"
+codesign --force --deep --sign - "$APP_DIR"
+codesign --verify --deep --strict --verbose "$APP_DIR"
 
 mkdir -p "$HOME/Applications"
 rm -rf "$INSTALL_DIR"

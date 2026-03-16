@@ -51,6 +51,11 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
+# Remove extended attributes and apply an explicit ad-hoc signature to the bundle.
+xattr -cr "$APP_DIR"
+codesign --force --deep --sign - "$APP_DIR"
+codesign --verify --deep --strict --verbose "$APP_DIR"
+
 rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
 cp -R "$APP_DIR" "$STAGING_DIR/$APP_NAME.app"
@@ -62,6 +67,8 @@ hdiutil create \
   -ov \
   -format UDZO \
   "$DMG_PATH"
+
+codesign --verify --verbose "$DMG_PATH" >/dev/null 2>&1 || true
 
 rm -rf "$STAGING_DIR"
 
