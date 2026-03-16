@@ -23,7 +23,7 @@ final class UpdateService {
     private let repoURL = "https://api.github.com/repos/Tide-Trends/tabs-and-chords/releases/latest"
 
     var currentVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.0"
     }
 
     func checkForUpdates() async -> UpdateResult {
