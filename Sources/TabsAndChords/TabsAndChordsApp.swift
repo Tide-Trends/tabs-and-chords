@@ -607,6 +607,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingSingleClickWorkItem: DispatchWorkItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
+
         hotKeyManager = HotKeyManager { [weak self] action in
             Task { @MainActor in
                 self?.performHotKeyAction(action)
@@ -857,7 +859,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct TabsAndChordsApp {
     static func main() {
         let application = NSApplication.shared
-        application.setActivationPolicy(.accessory)
         let delegate = AppDelegate()
         application.delegate = delegate
         application.run()
