@@ -12,14 +12,7 @@ MACOS_DIR="$CONTENTS_DIR/MacOS"
 DMG_PATH="$DIST_DIR/Tabs-and-Chords.dmg"
 STAGING_DIR="$DIST_DIR/dmg-staging"
 
-cd "$ROOT_DIR"
-swift build -c release
-
-rm -rf "$APP_DIR"
-mkdir -p "$MACOS_DIR"
-
-cp "$BUILD_DIR/$EXECUTABLE_NAME" "$MACOS_DIR/$EXECUTABLE_NAME"
-
+# Generate Info.plist first so it can be embedded
 cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -52,6 +45,11 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+
+# Build and embed Info.plist
+swift build -c release -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker "$CONTENTS_DIR/Info.plist"
+
+cp "$BUILD_DIR/$EXECUTABLE_NAME" "$MACOS_DIR/$EXECUTABLE_NAME"
 
 # Copy app icon into Resources/
 mkdir -p "$CONTENTS_DIR/Resources"
