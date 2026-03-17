@@ -17,7 +17,7 @@ struct TrackInfo {
     var displayName: String {
         [title, artist]
             .filter { !$0.isEmpty }
-            .joined(separator: " - ")
+            .joined(separator: " – ")
     }
 }
 
@@ -62,6 +62,8 @@ enum AppleScriptRunner {
         return output
     }
 }
+
+// MARK: - Player Detection
 
 enum PlayerSource: CaseIterable {
     case spotify
@@ -145,6 +147,8 @@ final class SongLookupService {
     }
 }
 
+// MARK: - Browser Tab Reading
+
 enum BrowserSource: CaseIterable {
     case safari
     case chrome
@@ -187,7 +191,13 @@ end tell
 """
         }
     }
+
+    static func fromName(_ name: String) -> BrowserSource? {
+        allCases.first { $0.applicationName == name }
+    }
 }
+
+// MARK: - Ultimate Guitar Service
 
 enum UltimateGuitarError: LocalizedError {
     case noOpenUltimateGuitarTab
@@ -208,14 +218,23 @@ final class UltimateGuitarService {
     ]
 
     func currentTrackFromOpenTab() throws -> TrackInfo {
+        let prefs = Preferences.shared
+        let priorityOrder = prefs.browserPriority.order
+
         let frontmostApplicationName = NSWorkspace.shared.frontmostApplication?.localizedName
-        let prioritizedSources = BrowserSource.allCases.sorted { lhs, rhs in
+        let prioritizedSources: [BrowserSource] = priorityOrder.compactMap { name in
+            BrowserSource.fromName(name)
+        }.sorted { lhs, rhs in
             let lhsIsFrontmost = lhs.applicationName == frontmostApplicationName
             let rhsIsFrontmost = rhs.applicationName == frontmostApplicationName
             return lhsIsFrontmost && !rhsIsFrontmost
         }
 
-        for source in prioritizedSources {
+        let remainingSources = BrowserSource.allCases.filter { source in
+            !prioritizedSources.contains(where: { $0.applicationName == source.applicationName })
+        }
+
+        for source in prioritizedSources + remainingSources {
             guard let url = currentURL(from: source) else {
                 continue
             }
@@ -295,6 +314,8 @@ final class UltimateGuitarService {
         token.hasPrefix("ver") || token.hasPrefix("v") && token.dropFirst().allSatisfy(\.isNumber)
     }
 }
+
+// MARK: - Apple Music Playback
 
 enum AppleMusicPlaybackOutcome {
     case playedFromLibrary
@@ -444,19 +465,49 @@ end run
     }
 }
 
+// MARK: - Multi-Provider Search Service
+
 final class SearchService {
-    func search(for track: TrackInfo) {
+    func search(for track: TrackInfo, provider: SearchProvider? = nil) {
+        let activeProvider = provider ?? Preferences.shared.searchProvider
+
         guard let encodedQuery = track.searchQuery.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
             return
         }
 
-        guard let url = URL(string: "https://www.ultimate-guitar.com/search.php?search_type=title&value=\(encodedQuery)") else {
+        guard let url = URL(string: "\(activeProvider.baseSearchURL)\(encodedQuery)") else {
             return
         }
 
         NSWorkspace.shared.open(url)
     }
+
+    func searchAll(for track: TrackInfo, providers: [SearchProvider]) {
+        for provider in providers {
+            search(for: track, provider: provider)
+        }
+    }
 }
+
+// MARK: - Clipboard Service
+
+final class ClipboardService {
+    func copyTrackInfo(_ track: TrackInfo) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(track.displayName, forType: .string)
+    }
+
+    func copySearchURL(_ track: TrackInfo, provider: SearchProvider = .ultimateGuitar) {
+        guard let encoded = track.searchQuery.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return }
+        let urlString = "\(provider.baseSearchURL)\(encoded)"
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(urlString, forType: .string)
+    }
+}
+
+// MARK: - Launch at Login
 
 final class LaunchAtLoginService {
     private let service = SMAppService.mainApp
@@ -478,9 +529,13 @@ final class LaunchAtLoginService {
     }
 }
 
+// MARK: - Keyboard Shortcuts
+
 enum HotKeyAction: UInt32 {
     case searchCurrentSong = 1
     case playUltimateGuitarTab = 2
+    case copyTrackInfo = 3
+    case searchSecondaryProvider = 4
 }
 
 final class HotKeyManager {
@@ -525,6 +580,8 @@ final class HotKeyManager {
 
         register(action: .searchCurrentSong, keyCode: UInt32(kVK_ANSI_T), modifiers: UInt32(cmdKey | optionKey))
         register(action: .playUltimateGuitarTab, keyCode: UInt32(kVK_ANSI_P), modifiers: UInt32(cmdKey | optionKey))
+        register(action: .copyTrackInfo, keyCode: UInt32(kVK_ANSI_C), modifiers: UInt32(cmdKey | optionKey | shiftKey))
+        register(action: .searchSecondaryProvider, keyCode: UInt32(kVK_ANSI_S), modifiers: UInt32(cmdKey | optionKey))
     }
 
     private func register(action: HotKeyAction, keyCode: UInt32, modifiers: UInt32) {
@@ -554,6 +611,8 @@ final class HotKeyManager {
         return noErr
     }
 }
+
+// MARK: - Status Bar Icon
 
 enum StatusBarIcon {
     static func makeTemplateImage() -> NSImage {
@@ -590,6 +649,28 @@ enum StatusBarIcon {
     }
 }
 
+// MARK: - Notification Helper
+
+@MainActor
+enum NotificationHelper {
+    static func showStatusBarFlash(_ statusItem: NSStatusItem?, message: String, duration: TimeInterval = 2.0) {
+        guard let button = statusItem?.button else { return }
+        let originalImage = button.image
+        let originalTitle = button.title
+
+        button.image = nil
+        button.title = message
+        button.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+            button.title = originalTitle
+            button.image = originalImage
+        }
+    }
+}
+
+// MARK: - App Delegate
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let songLookupService = SongLookupService()
@@ -597,6 +678,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let ultimateGuitarService = UltimateGuitarService()
     private let musicPlaybackService = MusicPlaybackService()
     private let launchAtLoginService = LaunchAtLoginService()
+    private let clipboardService = ClipboardService()
+    private let updateService = UpdateService()
+    private let prefs = Preferences.shared
 
     private var statusItem: NSStatusItem?
     private var menu: NSMenu?
@@ -605,6 +689,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var launchAtLoginItem: NSMenuItem?
     private var hotKeyManager: HotKeyManager?
     private var pendingSingleClickWorkItem: DispatchWorkItem?
+    private var autoRefreshTimer: Timer?
+
+    // Preference menu items
+    private var searchProviderMenu: NSMenu?
+    private var notificationStyleMenu: NSMenu?
+    private var browserPriorityMenu: NSMenu?
+    private var showSongItem: NSMenuItem?
+    private var checkUpdatesItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -622,12 +714,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let button = statusItem.button {
             button.image = StatusBarIcon.makeTemplateImage()
             button.imagePosition = .imageOnly
-            button.toolTip = "Single click: search Ultimate Guitar for current song. Double click: play open Ultimate Guitar tab in Apple Music."
+            button.toolTip = "Tabs & Chords — Single click: search tabs. Double click: play from UG tab. Right click: menu."
             button.target = self
             button.action = #selector(handleStatusBarClick)
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
+        buildMenu()
+        setupAutoRefresh()
+
+        if prefs.checkForUpdatesOnLaunch {
+            Task {
+                await checkForUpdatesQuietly()
+            }
+        }
+    }
+
+    private func buildMenu() {
         let menu = NSMenu()
 
         let currentTrackItem = NSMenuItem(title: "Current song: Not checked yet", action: nil, keyEquivalent: "")
@@ -635,41 +738,162 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.currentTrackItem = currentTrackItem
         menu.addItem(currentTrackItem)
 
-        let subtitleItem = NSMenuItem(title: "Single click searches Ultimate Guitar for the current song. Double click plays the open Ultimate Guitar tab in Apple Music. Shortcuts: Option-Command-P and Option-Command-T.", action: nil, keyEquivalent: "")
+        let shortcutHints = prefs.showKeyboardShortcutHints
+            ? "  Shortcuts: ⌥⌘T (search), ⌥⌘P (play), ⌥⌘⇧C (copy), ⌥⌘S (alt search)"
+            : ""
+        let subtitleItem = NSMenuItem(title: "Single click: search tabs • Double click: play from tab\(shortcutHints)", action: nil, keyEquivalent: "")
         subtitleItem.isEnabled = false
         self.subtitleItem = subtitleItem
         menu.addItem(subtitleItem)
 
         menu.addItem(.separator())
 
-        let playOpenTabItem = NSMenuItem(title: "Play open Ultimate Guitar tab in Apple Music", action: #selector(playOpenUltimateGuitarTab), keyEquivalent: "p")
+        // Primary actions
+        let playOpenTabItem = NSMenuItem(title: "Play open tab in Apple Music", action: #selector(playOpenUltimateGuitarTab), keyEquivalent: "p")
         playOpenTabItem.target = self
         playOpenTabItem.keyEquivalentModifierMask = [.command, .option]
         menu.addItem(playOpenTabItem)
 
-        let searchItem = NSMenuItem(title: "Search current song", action: #selector(searchCurrentSongFromMenu), keyEquivalent: "t")
+        let searchItem = NSMenuItem(title: "Search tabs for current song", action: #selector(searchCurrentSongFromMenu), keyEquivalent: "t")
         searchItem.target = self
         searchItem.keyEquivalentModifierMask = [.command, .option]
         menu.addItem(searchItem)
 
-        let refreshItem = NSMenuItem(title: "Refresh current song", action: #selector(refreshCurrentSong), keyEquivalent: "")
+        if prefs.secondarySearchProvider != nil {
+            let secondaryItem = NSMenuItem(title: "Search with \(prefs.secondarySearchProvider!.rawValue)", action: #selector(searchSecondaryProvider), keyEquivalent: "s")
+            secondaryItem.target = self
+            secondaryItem.keyEquivalentModifierMask = [.command, .option]
+            menu.addItem(secondaryItem)
+        }
+
+        let copyItem = NSMenuItem(title: "Copy track info to clipboard", action: #selector(copyCurrentTrack), keyEquivalent: "c")
+        copyItem.target = self
+        copyItem.keyEquivalentModifierMask = [.command, .option, .shift]
+        menu.addItem(copyItem)
+
+        let copyURLItem = NSMenuItem(title: "Copy search URL to clipboard", action: #selector(copySearchURL), keyEquivalent: "")
+        copyURLItem.target = self
+        menu.addItem(copyURLItem)
+
+        menu.addItem(.separator())
+
+        let refreshItem = NSMenuItem(title: "Refresh current song", action: #selector(refreshCurrentSong), keyEquivalent: "r")
         refreshItem.target = self
+        refreshItem.keyEquivalentModifierMask = [.command]
         menu.addItem(refreshItem)
+
+        menu.addItem(.separator())
+
+        // Preferences submenu
+        let prefsSubmenu = NSMenu()
+
+        // Search provider
+        let providerSubmenu = NSMenu()
+        for provider in SearchProvider.allCases {
+            let item = NSMenuItem(title: provider.rawValue, action: #selector(setSearchProvider(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = provider.rawValue
+            item.state = prefs.searchProvider == provider ? .on : .off
+            providerSubmenu.addItem(item)
+        }
+        let providerItem = NSMenuItem(title: "Search Provider", action: nil, keyEquivalent: "")
+        providerItem.submenu = providerSubmenu
+        self.searchProviderMenu = providerSubmenu
+        prefsSubmenu.addItem(providerItem)
+
+        // Secondary search provider
+        let secondaryProviderSubmenu = NSMenu()
+        let noneItem = NSMenuItem(title: "None", action: #selector(setSecondaryProvider(_:)), keyEquivalent: "")
+        noneItem.target = self
+        noneItem.representedObject = "none"
+        noneItem.state = prefs.secondarySearchProvider == nil ? .on : .off
+        secondaryProviderSubmenu.addItem(noneItem)
+        for provider in SearchProvider.allCases where provider != prefs.searchProvider {
+            let item = NSMenuItem(title: provider.rawValue, action: #selector(setSecondaryProvider(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = provider.rawValue
+            item.state = prefs.secondarySearchProvider == provider ? .on : .off
+            secondaryProviderSubmenu.addItem(item)
+        }
+        let secondaryProviderItem = NSMenuItem(title: "Secondary Provider", action: nil, keyEquivalent: "")
+        secondaryProviderItem.submenu = secondaryProviderSubmenu
+        prefsSubmenu.addItem(secondaryProviderItem)
+
+        prefsSubmenu.addItem(.separator())
+
+        // Notification style
+        let notifSubmenu = NSMenu()
+        for style in NotificationStyle.allCases {
+            let item = NSMenuItem(title: style.rawValue, action: #selector(setNotificationStyle(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = style.rawValue
+            item.state = prefs.notificationStyle == style ? .on : .off
+            notifSubmenu.addItem(item)
+        }
+        let notifItem = NSMenuItem(title: "Feedback Style", action: nil, keyEquivalent: "")
+        notifItem.submenu = notifSubmenu
+        self.notificationStyleMenu = notifSubmenu
+        prefsSubmenu.addItem(notifItem)
+
+        prefsSubmenu.addItem(.separator())
+
+        let showSongItem = NSMenuItem(title: "Show song in status bar", action: #selector(toggleShowSong), keyEquivalent: "")
+        showSongItem.target = self
+        showSongItem.state = prefs.showSongInStatusBar ? .on : .off
+        self.showSongItem = showSongItem
+        prefsSubmenu.addItem(showSongItem)
+
+        let shortcutHintsItem = NSMenuItem(title: "Show shortcut hints in menu", action: #selector(toggleShortcutHints), keyEquivalent: "")
+        shortcutHintsItem.target = self
+        shortcutHintsItem.state = prefs.showKeyboardShortcutHints ? .on : .off
+        prefsSubmenu.addItem(shortcutHintsItem)
+
+        let checkUpdatesItem = NSMenuItem(title: "Check for updates on launch", action: #selector(toggleCheckUpdates), keyEquivalent: "")
+        checkUpdatesItem.target = self
+        checkUpdatesItem.state = prefs.checkForUpdatesOnLaunch ? .on : .off
+        self.checkUpdatesItem = checkUpdatesItem
+        prefsSubmenu.addItem(checkUpdatesItem)
+
+        let prefsItem = NSMenuItem(title: "Preferences", action: nil, keyEquivalent: "")
+        prefsItem.submenu = prefsSubmenu
+        menu.addItem(prefsItem)
+
+        menu.addItem(.separator())
 
         let launchAtLoginItem = NSMenuItem(title: "Launch at login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
         launchAtLoginItem.target = self
         self.launchAtLoginItem = launchAtLoginItem
         menu.addItem(launchAtLoginItem)
 
+        let checkForUpdatesItem = NSMenuItem(title: "Check for updates…", action: #selector(checkForUpdatesFromMenu), keyEquivalent: "")
+        checkForUpdatesItem.target = self
+        menu.addItem(checkForUpdatesItem)
+
         menu.addItem(.separator())
 
-        let quitItem = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit Tabs & Chords", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
 
         self.menu = menu
         refreshMenuState()
     }
+
+    // MARK: - Auto Refresh
+
+    private func setupAutoRefresh() {
+        autoRefreshTimer?.invalidate()
+        let interval = prefs.autoRefreshInterval
+        guard interval > 0 else { return }
+
+        autoRefreshTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.refreshMenuState()
+            }
+        }
+    }
+
+    // MARK: - Click Handling
 
     @objc private func handleStatusBarClick() {
         guard let event = NSApp.currentEvent else {
@@ -700,6 +924,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         scheduleSingleClickAction()
     }
 
+    // MARK: - Menu Actions
+
     @objc private func searchCurrentSongFromMenu() {
         searchCurrentSong()
     }
@@ -710,6 +936,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func refreshCurrentSong() {
         refreshMenuState()
+        showFeedback("Refreshed")
+    }
+
+    @objc private func copyCurrentTrack() {
+        do {
+            let track = try songLookupService.currentTrack()
+            clipboardService.copyTrackInfo(track)
+            showFeedback("Copied: \(track.displayName)")
+        } catch {
+            showFeedback("Nothing playing")
+        }
+    }
+
+    @objc private func copySearchURL() {
+        do {
+            let track = try songLookupService.currentTrack()
+            clipboardService.copySearchURL(track, provider: prefs.searchProvider)
+            showFeedback("URL copied")
+        } catch {
+            showFeedback("Nothing playing")
+        }
+    }
+
+    @objc private func searchSecondaryProvider() {
+        guard let provider = prefs.secondarySearchProvider else { return }
+        do {
+            let track = try songLookupService.currentTrack()
+            searchService.search(for: track, provider: provider)
+            showFeedback("Searching \(provider.rawValue)…")
+        } catch {
+            presentMissingSongAlert(message: error.localizedDescription)
+        }
     }
 
     @objc private func toggleLaunchAtLogin() {
@@ -724,7 +982,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         } catch {
             refreshLaunchAtLoginState()
-            presentLaunchAtLoginErrorAlert(message: error.localizedDescription)
+            presentAlert(title: "Could not update launch at login", message: error.localizedDescription)
         }
     }
 
@@ -732,12 +990,86 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.terminate(nil)
     }
 
+    // MARK: - Preference Actions
+
+    @objc private func setSearchProvider(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let provider = SearchProvider(rawValue: rawValue)
+        else { return }
+        prefs.searchProvider = provider
+        buildMenu()
+    }
+
+    @objc private func setSecondaryProvider(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String else { return }
+        if rawValue == "none" {
+            prefs.secondarySearchProvider = nil
+        } else if let provider = SearchProvider(rawValue: rawValue) {
+            prefs.secondarySearchProvider = provider
+        }
+        buildMenu()
+    }
+
+    @objc private func setNotificationStyle(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let style = NotificationStyle(rawValue: rawValue)
+        else { return }
+        prefs.notificationStyle = style
+        notificationStyleMenu?.items.forEach { item in
+            item.state = (item.representedObject as? String) == rawValue ? .on : .off
+        }
+    }
+
+    @objc private func toggleShowSong() {
+        prefs.showSongInStatusBar.toggle()
+        showSongItem?.state = prefs.showSongInStatusBar ? .on : .off
+        refreshMenuState()
+    }
+
+    @objc private func toggleShortcutHints() {
+        prefs.showKeyboardShortcutHints.toggle()
+        buildMenu()
+    }
+
+    @objc private func toggleCheckUpdates() {
+        prefs.checkForUpdatesOnLaunch.toggle()
+        checkUpdatesItem?.state = prefs.checkForUpdatesOnLaunch ? .on : .off
+    }
+
+    @objc private func checkForUpdatesFromMenu() {
+        Task {
+            let result = await updateService.checkForUpdates()
+            switch result {
+            case .upToDate:
+                presentAlert(title: "You're up to date", message: "Tabs & Chords v\(updateService.currentVersion) is the latest version.")
+            case .updateAvailable(let version, let url):
+                let alert = NSAlert()
+                alert.messageText = "Update available"
+                alert.informativeText = "Version \(version) is available. You're running v\(updateService.currentVersion)."
+                alert.alertStyle = .informational
+                alert.addButton(withTitle: "Download")
+                alert.addButton(withTitle: "Later")
+                if alert.runModal() == .alertFirstButtonReturn {
+                    NSWorkspace.shared.open(url)
+                }
+            case .error(let message):
+                presentAlert(title: "Update check failed", message: message)
+            }
+        }
+    }
+
+    // MARK: - HotKey Handling
+
     private func performHotKeyAction(_ action: HotKeyAction) {
         switch action {
         case .searchCurrentSong:
             searchCurrentSong()
         case .playUltimateGuitarTab:
             playCurrentUltimateGuitarTab()
+        case .copyTrackInfo:
+            copyCurrentTrack()
+        case .searchSecondaryProvider:
+            searchSecondaryProvider()
         }
     }
 
@@ -752,14 +1084,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval, execute: action)
     }
 
+    // MARK: - State Management
+
     private func refreshMenuState() {
         refreshLaunchAtLoginState()
 
         do {
             let track = try songLookupService.currentTrack()
-            currentTrackItem?.title = "Current song: \(track.displayName)"
+            currentTrackItem?.title = "Now playing: \(track.displayName)"
+
+            if prefs.showSongInStatusBar {
+                let truncated = track.displayName.count > 30
+                    ? String(track.displayName.prefix(27)) + "…"
+                    : track.displayName
+                statusItem?.button?.title = " \(truncated)"
+                statusItem?.button?.imagePosition = .imageLeft
+            } else {
+                statusItem?.button?.title = ""
+                statusItem?.button?.imagePosition = .imageOnly
+            }
         } catch {
-            currentTrackItem?.title = "Current song: Nothing playing"
+            currentTrackItem?.title = "Now playing: Nothing detected"
+            if prefs.showSongInStatusBar {
+                statusItem?.button?.title = ""
+                statusItem?.button?.imagePosition = .imageOnly
+            }
         }
     }
 
@@ -773,11 +1122,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: - Core Actions
+
     private func searchCurrentSong() {
         do {
             let track = try songLookupService.currentTrack()
-            currentTrackItem?.title = "Current song: \(track.displayName)"
+            currentTrackItem?.title = "Now playing: \(track.displayName)"
             searchService.search(for: track)
+            showFeedback("Searching: \(track.displayName)")
         } catch {
             presentMissingSongAlert(message: error.localizedDescription)
         }
@@ -788,7 +1140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let track = try ultimateGuitarService.currentTrackFromOpenTab()
             playInAppleMusic(track)
         } catch {
-            presentUltimateGuitarAlert(message: error.localizedDescription)
+            presentAlert(title: "Could not use the current browser tab", message: error.localizedDescription)
         }
     }
 
@@ -800,36 +1152,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             switch outcome {
             case .playedFromLibrary:
-                break
+                showFeedback("Playing from library")
             case .playedFromCatalog:
+                showFeedback("Playing: \(track.displayName)")
                 currentTrackItem?.title = "Playing from tab: \(track.displayName)"
             }
         } catch {
-            presentAppleMusicErrorAlert(message: error.localizedDescription)
+            presentAlert(title: "Could not play in Apple Music", message: error.localizedDescription)
         }
     }
 
+    // MARK: - Update Check
+
+    private func checkForUpdatesQuietly() async {
+        let result = await updateService.checkForUpdates()
+        if case .updateAvailable(let version, _) = result {
+            showFeedback("v\(version) available!")
+        }
+    }
+
+    // MARK: - Feedback
+
+    private func showFeedback(_ message: String) {
+        switch prefs.notificationStyle {
+        case .statusBar:
+            NotificationHelper.showStatusBarFlash(statusItem, message: message)
+        case .banner:
+            break
+        case .none:
+            break
+        }
+    }
+
+    // MARK: - Alerts
+
     private func presentMissingSongAlert(message: String) {
-        let alert = NSAlert()
-        alert.messageText = "Could not find a playing song"
-        alert.informativeText = message
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
+        presentAlert(title: "No playing song detected", message: message)
     }
 
-    private func presentUltimateGuitarAlert(message: String) {
+    private func presentAlert(title: String, message: String) {
         let alert = NSAlert()
-        alert.messageText = "Could not use the current browser tab"
-        alert.informativeText = message
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
-    }
-
-    private func presentAppleMusicErrorAlert(message: String) {
-        let alert = NSAlert()
-        alert.messageText = "Could not play the song in Apple Music"
+        alert.messageText = title
         alert.informativeText = message
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
@@ -837,23 +1200,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func presentLaunchAtLoginApprovalAlert() {
-        let alert = NSAlert()
-        alert.messageText = "Launch at login needs approval"
-        alert.informativeText = "macOS may require you to allow Tabs & Chords in System Settings > General > Login Items."
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
-    }
-
-    private func presentLaunchAtLoginErrorAlert(message: String) {
-        let alert = NSAlert()
-        alert.messageText = "Could not update launch at login"
-        alert.informativeText = message
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
+        presentAlert(title: "Launch at login needs approval", message: "macOS may require you to allow Tabs & Chords in System Settings > General > Login Items.")
     }
 }
+
+// MARK: - App Entry Point
 
 @main
 struct TabsAndChordsApp {

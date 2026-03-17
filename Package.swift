@@ -11,7 +11,10 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "TabsAndChords"
+            name: "TabsAndChords",
+            swiftSettings: [
+                .swiftLanguageMode(.v5)
+            ]
         )
     ]
 )

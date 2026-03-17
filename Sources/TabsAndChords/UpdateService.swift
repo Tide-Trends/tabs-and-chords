@@ -11,19 +11,19 @@ struct GitHubRelease: Decodable {
     }
 }
 
-enum UpdateResult {
+enum UpdateResult: Sendable {
     case upToDate
     case updateAvailable(version: String, url: URL)
     case error(String)
 }
 
 @MainActor
-final class UpdateService {
+final class UpdateService: @unchecked Sendable {
     private let session = URLSession.shared
     private let repoURL = "https://api.github.com/repos/Tide-Trends/tabs-and-chords/releases/latest"
 
     var currentVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.0"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2.0"
     }
 
     func checkForUpdates() async -> UpdateResult {
